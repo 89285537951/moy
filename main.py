@@ -4,22 +4,21 @@ import logging
 from aiogram import Dispatcher
 
 from settings.config import bot
-from database.engine import async_engine, Base, migrate_database, ensure_admins
+from database.engine import init_db, ensure_admins
 from handlers import router as main_router
+from middlewares.db import DbSessionMiddleware
 
 
 async def main():
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    await migrate_database()
+    await init_db()
     await ensure_admins()
 
     dp = Dispatcher()
+    dp.update.middleware(DbSessionMiddleware())
     dp.include_router(main_router)
 
     await bot.delete_webhook(drop_pending_updates=True)
-    logging.info("Бот успешно запущен и ожидает сообщения...")
+    logging.info("Бот успешно запущен...")
     await dp.start_polling(bot)
 
 

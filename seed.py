@@ -1,13 +1,18 @@
 import asyncio
+import os
+from pathlib import Path
 
+print("=" * 60)
+print("Рабочая директория:", os.getcwd())
+print("Путь к seed.py:", Path(__file__).resolve())
+print("=" * 60)
 from sqlalchemy import select
 
 from database.engine import async_main, AsyncSessionLocal
-from database.models import Category, Furniture, FurniturePhoto
+from database.models import Category, Furniture, FurniturePhoto, Country, FurnitureType
 
 
 ITEMS_DATA = [
-
     {
         "category_name": "Спальная мебель",
         "country_origin": "Россия",
@@ -37,9 +42,6 @@ ITEMS_DATA = [
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTREjPqrmJBFf4U5otUGyIOQngheNUo9bEBRbQzFJR5eKps3TwoIcQZSzY&s=10"]
     },
-
-
-    # "
     {
         "category_name": "Кухонная мебель",
         "country_origin": "Россия",
@@ -71,8 +73,6 @@ ITEMS_DATA = [
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQhulB-xltwQUnU7tI2PPKuzlazMLQ0X_ETNMSJOoKdZqxb-KBiL83VGzE&s=10"]
     },
-
-
     {
         "category_name": "Мягкая мебель",
         "country_origin": "Россия",
@@ -101,7 +101,6 @@ ITEMS_DATA = [
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTDg1oYIxg2XTCXMjy8gmpI-lYwup1afR6p7AqEM0eBUrkP-7OUQiaQmOW5&s=10"]
     },
-
     {
         "category_name": "Детская мебель",
         "country_origin": "Россия",
@@ -129,8 +128,6 @@ ITEMS_DATA = [
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR4JKGvVsZmKvrZiqIMhowETFu5-5p0y57uBvKgc6yTiuLZv_VqOXV6sBg&s=10"]
     },
-
-
     {
         "category_name": "Столы и стулья",
         "country_origin": "Россия",
@@ -158,8 +155,6 @@ ITEMS_DATA = [
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQb5Y3sQJVyxWr_fyqJ2YZ1RWSGGMDbDXpRTSChnRs_LD1xU4xMM7rLZUsi&s=10"]
     },
-
-
     {
         "category_name": "Тумбы и комоды",
         "country_origin": "Россия",
@@ -189,8 +184,6 @@ ITEMS_DATA = [
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRaQhRMIMqU45l-OlaxQA-iTTAAx_uZDoaSzAfzLHeeiCeh78NbLTD1XcQ&s=10"]
     },
-
-
     {
         "category_name": "Шкафы купе",
         "country_origin": "Россия",
@@ -219,42 +212,95 @@ ITEMS_DATA = [
             "• <b>Материал:</b> Ламинированная плита високого класса, тонированное стекло"
         ),
         "photos": ["https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTJOuAlywuXr7IImQhIMMBrZg4jl2dZo2d3SE7mImx7Z1JlErhrV0XNKL-d&s=10"]
-    }
+    },
 ]
+
+
+# Маппинг: страна → категория → тип мебели
+TYPE_BY_CATEGORY = {
+    "Кухонная мебель": "Обычная",
+    "Спальная мебель": "Обычная",
+    "Мягкая мебель": "Обычная",
+    "Столы и стулья": "Обычная",
+    "Тумбы и комоды": "Обычная",
+    "Детская мебель": "Обычная",
+    "Шкафы купе": "Обычная",
+}
 
 
 async def seed_database():
     await async_main()
 
     async with AsyncSessionLocal() as session:
+        # 1. Категории
         category_names = {item["category_name"] for item in ITEMS_DATA}
         for name in category_names:
             if not await session.scalar(select(Category).where(Category.name == name)):
                 session.add(Category(name=name))
         await session.flush()
 
+        # 2. Страны
+        country_names = {item["country_origin"] for item in ITEMS_DATA}
+        countries = {}
+        for name in country_names:
+            country = await session.scalar(select(Country).where(Country.name == name))
+            if not country:
+                country = Country(name=name)
+                session.add(country)
+                await session.flush()
+            countries[name] = country
+
+        # 3. Типы мебели
+        type_names = set(TYPE_BY_CATEGORY.values())
+        types = {}
+        for name in type_names:
+            ftype = await session.scalar(select(FurnitureType).where(FurnitureType.name == name))
+            if not ftype:
+                ftype = FurnitureType(name=name)
+                session.add(ftype)
+                await session.flush()
+            types[name] = ftype
+
+        # 4. Категории в словарь
+        categories = {}
+        for name in category_names:
+            cat = await session.scalar(select(Category).where(Category.name == name))
+            categories[name] = cat
+
+        # 5. Товары
         for item_data in ITEMS_DATA:
+            cat = categories[item_data["category_name"]]
+            country = countries[item_data["country_origin"]]
+            type_name = TYPE_BY_CATEGORY.get(item_data["category_name"], "Обычная")
+            ftype = types[type_name]
+
+            # Проверка на дубликат
             exists = await session.scalar(
                 select(Furniture).where(
-                    Furniture.category_name == item_data["category_name"],
-                    Furniture.country_origin == item_data["country_origin"],
+                    Furniture.category_id == cat.id,
+                    Furniture.country_id == country.id,
                     Furniture.description == item_data["description"],
                 )
             )
             if exists:
                 continue
 
+            # Заголовок — вытащим из описания (первая строка)
+            title = item_data["description"].split("\n")[0].replace("🛏", "").replace("👑", "").strip()
+            title = title[:100]  # ограничим длину
+
             furniture = Furniture(
-                category_name=item_data["category_name"],
-                furniture_type=item_data.get("furniture_type"),
-                country_origin=item_data["country_origin"],
+                title=title,
                 description=item_data["description"],
+                category_id=cat.id,
+                country_id=country.id,
+                type_id=ftype.id,
             )
             session.add(furniture)
             await session.flush()
 
             for photo_url in item_data["photos"]:
-                session.add(FurniturePhoto(furniture_id=furniture.id, file_path=photo_url))
+                session.add(FurniturePhoto(furniture_id=furniture.id, file_id=photo_url))
 
         await session.commit()
         print("✅ База успешно заполнена категориями и товарами.")

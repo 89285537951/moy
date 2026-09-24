@@ -1,9 +1,16 @@
-from aiogram.filters import BaseFilter
-from aiogram.types import CallbackQuery, Message
+import os
+from aiogram.filters import Filter
+from aiogram.types import Message, CallbackQuery
+from dotenv import load_dotenv
 
-from database.requests import is_admin
+load_dotenv()
+
+_admin_raw = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID") or ""
+ADMIN_IDS = [int(x.strip()) for x in _admin_raw.replace(";", ",").split(",") if x.strip().isdigit()]
 
 
-class IsAdmin(BaseFilter):
+class IsAdmin(Filter):
     async def __call__(self, event: Message | CallbackQuery) -> bool:
-        return await is_admin(event.from_user.id)
+        if not event.from_user:
+            return False
+        return event.from_user.id in ADMIN_IDS
